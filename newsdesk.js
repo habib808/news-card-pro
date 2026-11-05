@@ -159,35 +159,60 @@
 
   // ---------------- LOCAL HEADLINE VARIATIONS (no AI key) ----------------
   const SYN = [
-    ['রাজধানীতে','ঢাকায়'], ['বললেন','জানালেন'], ['বলেছেন','জানিয়েছেন'], ['মৃত্যু','প্রাণহানি'],
+    ['রাজধানীতে','ঢাকায়'], ['বলেছেন','জানিয়েছেন'], ['মৃত্যু','প্রাণহানি'],
     ['আহত','জখম'], ['বৈঠক','সভা'], ['দুর্ঘটনায়','দুর্ঘটনার ঘটনায়'], ['সংঘর্ষে','সংঘর্ষের ঘটনায়'],
     ['বাড়ল','বেড়েছে'], ['কমল','কমেছে'], ['শুরু','শুরু হলো'], ['নিশ্চিত','নিশ্চিত করল']
   ].map(p => p.map(N));
+  const BN_DIG = '০১২৩৪৫৬৭৮৯';
+  const toEn = x => x.replace(/[০-৯]/g, d => BN_DIG.indexOf(d));
+  const toBn = x => String(x).replace(/\d/g, d => BN_DIG[d]);
+  // "Actor" words that often end a headline in the genitive: "... স্থাপন প্রধানমন্ত্রীর"
+  const ACTION_VERB = { 'স্থাপন':'করলেন', 'উদ্বোধন':'করলেন', 'ঘোষণা':'দিলেন', 'নির্দেশ':'দিলেন', 'অনুমোদন':'দিলেন',
+    'আহ্বান':'জানালেন', 'সফর':'করলেন', 'বৈঠক':'করলেন', 'সাক্ষাৎ':'করলেন', 'উদ্বেগ':'প্রকাশ করলেন', 'শোক':'প্রকাশ করলেন',
+    'নিন্দা':'জানালেন', 'অভিনন্দন':'জানালেন', 'হুঁশিয়ারি':'দিলেন', 'প্রতিশ্রুতি':'দিলেন', 'আশ্বাস':'দিলেন', 'দাবি':'জানালেন' };
   function localVariations(title){
     const t = N(title).replace(/\*/g, '').trim();
     const out = new Set();
-    // 1) "৫ জন নিহত" ⇄ "নিহত ৫" / "প্রাণ গেল ৫ জনের"
-    const m = t.match(/([০-৯\d]+)\s*জন\s+(নিহত|আহত)/);
-    if (m) {
-      out.add(t.replace(m[0], m[2] + ' ' + m[1]));
-      if (m[2] === 'নিহত') out.add(t.replace(m[0], m[1] + ' জনের প্রাণহানি'));
+    const add = v => { v = v.replace(/\s+/g, ' ').trim(); if (v && v !== t) out.add(v); };
+
+    // A) "...<কাজ> <ব্যক্তি>র"  →  "<ব্যক্তি> ... <কাজ> <ক্রিয়া>"
+    const words = t.split(' ');
+    if (words.length >= 4) {
+      const last = words[words.length - 1].replace(/[।.!]$/, ''), act = words[words.length - 2];
+      const verb = ACTION_VERB[N(act)];
+      const m = last.match(/^(.+?)(?:ের|এর|র)$/);
+      if (verb && m) {
+        const rest = words.slice(0, -2).join(' ');
+        add(m[1] + ' ' + rest + ' ' + act + ' ' + verb);           // প্রধানমন্ত্রী … স্থাপন করলেন
+        add(rest + ' ' + act + ' ' + verb + ' ' + m[1]);           // … স্থাপন করলেন প্রধানমন্ত্রী
+      }
     }
-    const m2 = t.match(/(নিহত|আহত)\s+([০-৯\d]+)(?!\s*জন)/);
-    if (m2) out.add(t.replace(m2[0], m2[2] + ' জন ' + m2[1]));
-    // 2) swap two clauses around a comma / semicolon
+    // B) topic + colon:  "মোংলা বন্দরের আধুনিকায়নে …" → "মোংলা বন্দরের আধুনিকায়ন: …"
+    const loc = t.match(/^((?:\S+\s){0,3}?\S+?ন)ে\s+(.{12,})$/);
+    if (loc && !/:/.test(t)) add(loc[1] + ': ' + loc[2]);
+    // C) "৫ জন নিহত" ⇄ "নিহত ৫" / "৫ জনের প্রাণহানি"
+    const d = t.match(/([০-৯\d]+)\s*জন\s+(নিহত|আহত)/);
+    if (d) { add(t.replace(d[0], d[2] + ' ' + d[1])); if (d[2] === 'নিহত') add(t.replace(d[0], d[1] + ' জনের প্রাণহানি')); }
+    const d2 = t.match(/(নিহত|আহত)\s+([০-৯\d]+)(?!\s*জন)/);
+    if (d2) add(t.replace(d2[0], d2[2] + ' জন ' + d2[1]));
+    // D) number style: "৪ হাজার কোটি" → "৪,০০০ কোটি"
+    const h = t.match(/([০-৯\d]+)\s*হাজার\s+(কোটি|লাখ)/);
+    if (h) add(t.replace(h[0], toBn((+toEn(h[1]) * 1000).toLocaleString('en-US')) + ' ' + h[2]));
+    // D2) "ডলারের দাম বেড়ে ১২৫ টাকা" → "১২৫ টাকায় উঠল ডলারের দাম"
+    const pr = t.match(/^(.+?)\s(বেড়ে|কমে)\s([০-৯\d][^,;:]*?)$/);
+    if (pr) { const obj = pr[3].trim(); add((/া$/.test(obj) ? obj + 'য়' : obj + 'ে') + ' ' + (pr[2] === 'বেড়ে' ? 'উঠল' : 'নামল') + ' ' + pr[1]); }
+    // E) swap two clauses around a comma / semicolon
     const parts = t.split(/\s*[,;]\s*/);
-    if (parts.length === 2 && parts[0].split(' ').length > 1 && parts[1].split(' ').length > 1) out.add(parts[1] + ', ' + parts[0]);
-    // 3) attribution "X: Y" ⇄ "Y — X"
+    if (parts.length === 2 && parts[0].split(' ').length > 1 && parts[1].split(' ').length > 1) add(parts[1] + ', ' + parts[0]);
+    // F) attribution "X: Y" ⇄ "Y — X"
     const c = t.match(/^([^:]{2,40}):\s*(.+)$/);
-    if (c) out.add(c[2].replace(/[।.]$/, '') + ' — ' + c[1]);
-    // 4) synonym swaps
-    let s = t, changed = 0;
-    SYN.forEach(([a, b]) => {
-      if (s.includes(a)) { s = s.replace(a, b); changed++; }
-      else if (s.includes(b)) { s = s.replace(b, a); changed++; }
-    });
-    if (changed) out.add(s);
-    out.delete(t);
+    if (c) add(c[2].replace(/[।.]$/, '') + ' — ' + c[1]);
+    // G) safe synonym swaps (applied on top of the first variation too)
+    const syn = v => { let s2 = v, n = 0;
+      if (/ বললেন/.test(s2)) { s2 = s2.replace(' বললেন', ' জানালেন'); n++; }   // one-way only
+      SYN.forEach(([a, b]) => { if (s2.includes(a)) { s2 = s2.replace(a, b); n++; } else if (s2.includes(b)) { s2 = s2.replace(b, a); n++; } }); return n ? s2 : ''; };
+    add(syn(t));
+    const first = [...out][0]; if (first) add(syn(first));
     return [...out].slice(0, 4);
   }
 
@@ -214,9 +239,10 @@
   async function getVariations(title, context){
     let res = { variations: [], keywords: [], source: 'local' };
     if (STATUS.ai) {
-      try { res = await api('rewrite', {}, { title, context: context || '' }); } catch(e) { console.warn('AI', e); }
+      try { res = await api('rewrite', {}, { title, context: context || '' }); }
+      catch(e) { console.warn('AI', e); res = { variations: [], keywords: [], aiError: e.message }; }
     }
-    if (!res.variations || !res.variations.length) res = { variations: localVariations(title), keywords: res.keywords || [], source: 'local' };
+    if (!res.variations || !res.variations.length) res = { variations: localVariations(title), keywords: res.keywords || [], source: 'local', aiError: res.aiError };
     if (!res.keywords || !res.keywords.length) res.keywords = guessKeywords(title);
     return res;
   }
@@ -331,7 +357,7 @@
     varSheet.body.innerHTML = `
       <div class="nd-label"><i class="fa-solid fa-wand-magic-sparkles" style="color:#f59e0b"></i> শিরোনামের বিকল্প</div>
       ${list.length ? list.map((v, i) => `<button class="nd-var ${v.text === current ? 'active' : ''}" data-i="${i}">${hl(v.text)}<small>${v.tag}</small></button>`).join('') : '<div class="nd-note">এই শিরোনামের কোনো ভেরিয়েশন বানানো যায়নি।</div>'}
-      ${vars.source === 'local' ? `<div class="nd-note">💡 আরও স্বাভাবিক ও ভিন্ন শিরোনামের জন্য api.php তে বিনামূল্যের Gemini API key দিন — তখন AI নিজে নতুন করে লিখবে।</div>` : ''}
+      ${vars.source === 'local' ? `<div class="nd-note">${aiNote(vars.aiError)}</div>` : ''}
       ${noImage ? '<div class="nd-note">🖼️ এই খবরের ছবি পাওয়া যায়নি — নিচের বাটন থেকে ছবি বেছে নিন।</div>' : ''}
       <div class="nd-row">
         <button class="nd-btn" id="ndMoreImg"><i class="fa-regular fa-images"></i> অন্য ছবি</button>
@@ -344,6 +370,15 @@
     varSheet.body.querySelector('[data-close]').onclick = closeAll;
     varSheet.body.querySelector('#ndMoreImg').onclick = () => openImagePicker(original || NC().getTitle());
     open(varSheet);
+  }
+
+  function aiNote(err){
+    if (!STATUS.ai) return '💡 আরও স্বাভাবিক ও ভিন্ন শিরোনামের জন্য সার্ভারে Gemini API key যোগ করুন (Vercel → Environment Variables → GEMINI_API_KEY)।';
+    const e = String(err || '');
+    if (/403|PERMISSION|denied|billing|restricted/i.test(e)) return '⚠️ AI কাজ করছে না: Google আপনার Gemini প্রজেক্টে ফ্রি ব্যবহার বন্ধ রেখেছে। AI Studio-তে বিলিং চালু করুন বা অন্য Google অ্যাকাউন্টের key দিন। ততক্ষণ সাধারণ ভেরিয়েশন দেখানো হচ্ছে।';
+    if (/429|quota|rate/i.test(e)) return '⚠️ AI-এর আজকের/মিনিটের সীমা শেষ। একটু পরে আবার চেষ্টা করুন। ততক্ষণ সাধারণ ভেরিয়েশন দেখানো হচ্ছে।';
+    if (/400|API key not valid|INVALID/i.test(e)) return '⚠️ Gemini API key সঠিক নয়। Vercel-এ GEMINI_API_KEY আবার দেখুন, তারপর Redeploy করুন।';
+    return '⚠️ AI থেকে উত্তর পাওয়া যায়নি' + (e ? ' (' + esc(e.slice(0, 120)) + ')' : '') + '। ততক্ষণ সাধারণ ভেরিয়েশন দেখানো হচ্ছে।';
   }
 
   async function variationsForCurrent(){
