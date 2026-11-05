@@ -1,0 +1,6 @@
+{
+  "name": "nahdah24-newscard",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" }
+}
